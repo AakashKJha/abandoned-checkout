@@ -15,8 +15,7 @@ public class Message {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private String cartId;
-    private String firstMessage;
-    private String secondMessage;
-    private String thirdMessage;
+    private String message;
+
 
 }

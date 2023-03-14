@@ -66,7 +66,7 @@ public class CheckoutService implements ApplicationRunner {
         checkout.setOrderPlaced(true);
         checkoutRepo.save(checkout);
     }
-    public void addAbandoned(Map<String, Object> request, Integer first, Integer second, Integer third){
+    public void addAbandoned(Map<String, Object> request,List<String>messages,List<Integer>timer, Integer noOfRem ){
         Checkout checkout = new Checkout();
         checkout.setCartId( request.get("id").toString());
         Map<String, Object> phone = (Map<String, Object>) request.get("phone");
@@ -76,27 +76,24 @@ public class CheckoutService implements ApplicationRunner {
         Date date = new Date();
         Calendar calendar = Calendar.getInstance();
         calendar.setTime(date);
-        calendar.add(calendar.MINUTE,first);
-        Date firstEventTime = calendar.getTime();
-        calendar.add(calendar.MINUTE,-first);
-        calendar.add(calendar.MINUTE,second);
-        Date secondEventTime = calendar.getTime();
-        calendar.add(calendar.MINUTE,-second);
-        calendar.add(calendar.MINUTE,third);
-        Date thirdEventTime = calendar.getTime();
         ArrayList<Date>times = new ArrayList<>();
-        times.add(firstEventTime);
-        times.add(secondEventTime);
-        times.add(thirdEventTime);
+        for(int i =0; i<noOfRem; i++){
+            calendar.add(calendar.MINUTE,timer.get(i));
+            times.add(calendar.getTime());
+            calendar.add(calendar.MINUTE,-timer.get(i));
+        }
+
         int index =0;
         AtomicReference<Long> remainder= new AtomicReference<>(Long.valueOf(1));
         while (index < times.size()){
             TimeStamp timeStamp = new TimeStamp();
-            timeStamp.setDate(times.get(index++));
+            timeStamp.setDate(times.get(index));
+            timeStamp.setMessage(messages.get(index));
             timeStamp.setCartId(savedCheckout.getCartId());
             timeStamp.setRemainder(remainder.getAndSet(remainder.get() + 1));
             events.add(timeStamp);
             remainderRepo.save(timeStamp);
+            index++;
         }
 
 
@@ -109,15 +106,15 @@ public class CheckoutService implements ApplicationRunner {
                 if (!events.isEmpty()) {
                     if(events.peek().getDate().before(new Date())){
                         TimeStamp timeStamp = events.poll();
-                    if(!getCheckoutByCartIdAndNotPlaced(timeStamp.getCartId()).getOrderPlaced()){
+                    if(!getCheckoutByCartId(timeStamp.getCartId()).getOrderPlaced()){
                         Message message;
                         if(getMessageByCartId(timeStamp.getCartId()) != null){
                             message = getMessageByCartId(timeStamp.getCartId());
-                            message.setFirstMessage(message.getFirstMessage()+"This is your "+timeStamp.getRemainder()+"th remainder");
+                            message.setMessage(message.getMessage()+", "+timeStamp.getMessage());
                         }
                         else{
                             message = new Message();
-                            message.setFirstMessage("This is your first message");
+                            message.setMessage(timeStamp.getMessage());
                             message.setCartId(timeStamp.getCartId());
                         }
 

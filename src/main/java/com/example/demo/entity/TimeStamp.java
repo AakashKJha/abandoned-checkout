@@ -18,6 +18,7 @@ public class TimeStamp implements Comparable<TimeStamp> {
     private Long id;
     private String cartId;
     private Long remainder;
+    private String message;
     private Date date;
     @Override
     public int compareTo(TimeStamp other) {

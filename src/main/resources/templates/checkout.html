@@ -31,17 +31,14 @@
   <table class="table table-bordered table-striped">
     <tr>
       <th>Cart Id</th>
-      <th>First Message</th>
-      <th>Second Message</th>
-      <th>Third Message</th>
+      <th>Messages</th>
+
     </tr>
 
     <tbody>
     <tr th:each="message: ${messages}">
       <td th:text="${message.cartId}"></td>
-      <td th:text="${message.firstMessage}"></td>
-      <td th:text="${message.secondMessage}"></td>
-      <td th:text="${message.thirdMessage}"></td>
+      <td th:text="${message.message}"></td>
 
     </tr>
 
