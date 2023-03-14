@@ -2,19 +2,28 @@ package com.example.demo.Service;
 
 import com.example.demo.Repo.CheckoutRepo;
 import com.example.demo.Repo.MessageRepo;
+import com.example.demo.Repo.RemainderRepo;
 import com.example.demo.entity.Checkout;
 import com.example.demo.entity.Message;
+import com.example.demo.entity.TimeStamp;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Service;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
-public class CheckoutService {
+public class CheckoutService implements ApplicationRunner {
 
     @Autowired
     CheckoutRepo checkoutRepo;
     @Autowired
     MessageRepo messageRepo;
+    PriorityQueue<TimeStamp> events =new PriorityQueue<TimeStamp>();
+
+    @Autowired
+    RemainderRepo remainderRepo;
     public Checkout getCheckoutByCartId(String id){
         Optional<Checkout> checkout = checkoutRepo.findByCartIdAndOrderPlacedIsFalse(id);
         if(checkout.isPresent()){
@@ -39,7 +48,7 @@ public class CheckoutService {
             return message.get();
         }
         else{
-            throw new RuntimeException("No cart found with Id: "+ id);
+            return null;
         }
     }
 
@@ -61,78 +70,107 @@ public class CheckoutService {
         Checkout checkout = new Checkout();
         checkout.setCartId( request.get("id").toString());
         Map<String, Object> phone = (Map<String, Object>) request.get("phone");
+
         checkout.setPhone(phone.get("phone").toString());
-        checkoutRepo.save(checkout);
+        Checkout savedCheckout= checkoutRepo.save(checkout);
         Date date = new Date();
         Calendar calendar = Calendar.getInstance();
         calendar.setTime(date);
         calendar.add(calendar.MINUTE,first);
         Date firstEventTime = calendar.getTime();
         calendar.add(calendar.MINUTE,-first);
-        calendar.add(calendar.DAY_OF_MONTH,second);
+        calendar.add(calendar.MINUTE,second);
         Date secondEventTime = calendar.getTime();
-        calendar.add(calendar.DAY_OF_MONTH,-second);
-        calendar.add(calendar.DAY_OF_MONTH,third);
+        calendar.add(calendar.MINUTE,-second);
+        calendar.add(calendar.MINUTE,third);
         Date thirdEventTime = calendar.getTime();
         ArrayList<Date>times = new ArrayList<>();
         times.add(firstEventTime);
         times.add(secondEventTime);
         times.add(thirdEventTime);
-        scheduleEvent(times, request.get("id").toString());
+        int index =0;
+        AtomicReference<Long> remainder= new AtomicReference<>(Long.valueOf(1));
+        while (index < times.size()){
+            TimeStamp timeStamp = new TimeStamp();
+            timeStamp.setDate(times.get(index++));
+            timeStamp.setCartId(savedCheckout.getCartId());
+            timeStamp.setRemainder(remainder.getAndSet(remainder.get() + 1));
+            events.add(timeStamp);
+            remainderRepo.save(timeStamp);
+        }
+
 
     }
-    public void scheduleEvent(List<Date>times, String id){
-        Timer timer = new Timer();
-        Date date1 = times.get(0);
-        timer.schedule(new TimerTask() {
-            public void run() {
-                Checkout checkout = getCheckoutByCartIdAndNotPlaced(id);
-                if (!checkout.getOrderPlaced()){
-                    Message message = new Message();
-                    message.setCartId(id);
-                    message.setFirstMessage("This is first Remainder to your cart "+id);
-                    messageRepo.save(message);
+    public void scheduleEvent(){
+        Thread thread =new Thread(() -> {
+            while (true) {
+
+                // Check the condition
+                if (!events.isEmpty()) {
+                    if(events.peek().getDate().before(new Date())){
+                        TimeStamp timeStamp = events.poll();
+                    if(!getCheckoutByCartIdAndNotPlaced(timeStamp.getCartId()).getOrderPlaced()){
+                        Message message;
+                        if(getMessageByCartId(timeStamp.getCartId()) != null){
+                            message = getMessageByCartId(timeStamp.getCartId());
+                            message.setFirstMessage(message.getFirstMessage()+"This is your "+timeStamp.getRemainder()+"th remainder");
+                        }
+                        else{
+                            message = new Message();
+                            message.setFirstMessage("This is your first message");
+                            message.setCartId(timeStamp.getCartId());
+                        }
+
+                        messageRepo.save(message);
+                    }
+                    deleteTime(timeStamp);
+                    }
+
+
+                }
+                else {
+                    System.out.println("Event is empty and size is: "+ events.size());
+                    while (events.isEmpty()){
+                        try {
+                            Thread.sleep(2000);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+
                 }
             }
-        }, date1);
-
-        Date date2 = times.get(1);
-        TimerTask task2 = new TimerTask() {
-            public void run() {
-                Checkout checkout = getCheckoutByCartIdAndNotPlaced(id);
-                if (!checkout.getOrderPlaced()){
-                    Message message = getMessageByCartId(id);
-
-                    message.setSecondMessage("This is Second Remainder to your cart "+id);
-                    messageRepo.save(message);
-                }
-            }
-        };
-        timer.schedule(task2, date2);
-
-
-        Date date3 = times.get(2);
-        TimerTask task3 = new TimerTask() {
-            public void run() {
-                Checkout checkout = getCheckoutByCartIdAndNotPlaced(id);
-                if (!checkout.getOrderPlaced()){
-                    Message message = getMessageByCartId(id);
-
-                    message.setThirdMessage("This is Third Remainder to your cart "+id);
-                    messageRepo.save(message);
-                }
-
-            }
-        };
-        timer.schedule(task3, date3);
+        });
+        thread.start();
 
     }
 
     public List<Checkout> getAllOrders() {
         return checkoutRepo.findAllByOrderPlacedIsTrue();
     }
+    public void deleteTime(TimeStamp timeStamp){
+        remainderRepo.delete(timeStamp);
+    }
 
     public List<Message> getAllMessage() {
         return messageRepo.findAll();
+    }
+
+    public PriorityQueue<TimeStamp> getAllRemainder(){
+
+        List<TimeStamp> stampList = remainderRepo.findAll();
+        return addTimeInQueue(stampList,new PriorityQueue<TimeStamp>());
+    }
+    public PriorityQueue<TimeStamp> addTimeInQueue(List<TimeStamp>timeStamps,
+                                                   PriorityQueue<TimeStamp> minHeapTime ){
+        timeStamps.forEach(minHeapTime:: add);
+        return minHeapTime;
+    }
+
+
+    @Override
+    public void run(ApplicationArguments args) throws Exception {
+        events = getAllRemainder();
+        scheduleEvent();
     }
 }
